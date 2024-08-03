@@ -47,9 +47,13 @@ main().then(() => console.log('DONE'));
 async function _itarate_autoimprove_prompt(input_prompt, iteration) {
     let current_prompt = input_prompt;
     let response;
+    let max_score = 0;
     for (let i = 0; i < iteration; i++) {
         response = await _autoimprove_prompt(current_prompt);
-        current_prompt = response.prompt;
+        if (response.score > max_score) {
+            max_score = response.score;
+            current_prompt = response.prompt;
+        }
     }
     return response;
 }
@@ -66,7 +70,7 @@ async function _autoimprove_prompt(input_prompt) {
     const best_score_index = _resolve_best_score_index(scores);
     const improved_prompt_result = {
         prompt: improved_prompts[best_score_index],
-        ...evaluated_responses[best_score_index]
+        ...evaluated_responses[best_score_index],
     };
     return improved_prompt_result;
 }
@@ -77,7 +81,9 @@ async function _test_prompt(prompt) {
 }
 async function _generate_user_prompt_example(prompt) {
     const user_input_system_prompt = await prompts.read('user-input-system');
-    const user_input_user_prompt = await prompts.read('user-input-user', { prompt });
+    const user_input_user_prompt = await prompts.read('user-input-user', {
+        prompt,
+    });
     const response = await _ask_openai(user_input_system_prompt, user_input_user_prompt);
     return response;
 }
@@ -104,7 +110,7 @@ function _validate_evaluated_response(response) {
             bad_aspects: {
                 primitive: 'array',
                 item: 'string',
-            }
+            },
         },
     });
 }

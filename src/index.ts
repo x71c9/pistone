@@ -38,9 +38,13 @@ async function _itarate_autoimprove_prompt(
 ) {
   let current_prompt = input_prompt;
   let response;
+  let max_score = 0;
   for (let i = 0; i < iteration; i++) {
     response = await _autoimprove_prompt(current_prompt);
-    current_prompt = response.prompt;
+    if (response.score > max_score) {
+      max_score = response.score;
+      current_prompt = response.prompt;
+    }
   }
   return response;
 }
