@@ -11,10 +11,13 @@ import * as prompts from './prompts/index';
 
 const openai = new OpenAI();
 
+type Recommendation = {
+  good_aspects: string[];
+  bad_aspects: string[];
+};
+
 type EvaluatedResponse = {
   score: number;
-  good_aspects: string;
-  bad_aspects: string;
 };
 
 type ImprovedPromptResult = EvaluatedResponse & {
@@ -22,7 +25,8 @@ type ImprovedPromptResult = EvaluatedResponse & {
 };
 
 export async function main() {
-  const input_prompt = await prompts.read('input');
+  log.trace('Autoimproving prompt...');
+  const input_prompt = await prompts.read('../input');
   const improved_prompt_result = await _itarate_autoimprove_prompt(
     input_prompt,
     3
@@ -40,6 +44,8 @@ async function _itarate_autoimprove_prompt(
   let response;
   let max_score = 0;
   for (let i = 0; i < iteration; i++) {
+    log.debug(`************************************************************`);
+    log.debug(`Iteration ${i} started...`);
     response = await _autoimprove_prompt(current_prompt);
     if (response.score > max_score) {
       max_score = response.score;
@@ -50,14 +56,24 @@ async function _itarate_autoimprove_prompt(
 }
 
 async function _autoimprove_prompt(
-  input_prompt: string
+  input_prompt: string,
+  recommendation?: Recommendation
 ): Promise<ImprovedPromptResult> {
-  const improved_prompts = await _improve_prompt(input_prompt, 2);
+  log.trace(`Autoimproving prompt...`);
+  const improved_prompts = await _improve_prompt(
+    input_prompt,
+    3,
+    recommendation
+  );
   const scores: number[] = [];
   const evaluated_responses: EvaluatedResponse[] = [];
   for (const improved_prompt of improved_prompts) {
+    log.trace('-------------------------------------------------------------');
+    log.trace(improved_prompt);
     const result = await _test_prompt(improved_prompt);
+    log.debug(`Generated result:\n${result}`);
     const evaluated_response = await _evaluate_result(result, improved_prompt);
+    log.info(`Evaluated result score: ${evaluated_response.score}`);
     scores.push(evaluated_response.score);
     evaluated_responses.push(evaluated_response);
   }
@@ -70,7 +86,9 @@ async function _autoimprove_prompt(
 }
 
 async function _test_prompt(prompt: string) {
+  log.trace(`Testing prompt...`);
   const user_prompt = await _generate_user_prompt_example(prompt);
+  log.debug(`Generated user input example ${user_prompt}`);
   const response = await _ask_openai(prompt, user_prompt);
   return response;
 }
@@ -126,15 +144,15 @@ function _validate_evaluated_response(
 
 async function _improve_prompt(
   input_prompt: string,
-  output_quantity: number
+  output_quantity: number,
+  recommendations?: Recommendation
 ): Promise<string[]> {
   const improve_prompt = await prompts.read('improve');
   const user_prompt = await _resolve_improved_prompt_user_prompt(
     input_prompt,
-    output_quantity
+    output_quantity,
+    recommendations
   );
-  log.info(improve_prompt);
-  log.debug(user_prompt);
   const response = await _ask_openai(improve_prompt, user_prompt);
   const parsed_response = JSON.parse(response);
   const improved_prompts: string[] = [];
@@ -150,7 +168,8 @@ async function _improve_prompt(
 
 async function _resolve_improved_prompt_user_prompt(
   input_prompt: string,
-  output_quantity: number
+  output_quantity: number,
+  recommendation?: Recommendation
 ): Promise<string> {
   let user_prompt = '';
   user_prompt += `Generate ${output_quantity} improved prompts for the`;
@@ -158,11 +177,27 @@ async function _resolve_improved_prompt_user_prompt(
   user_prompt += `<INPUT_PROMPT>\n`;
   user_prompt += `${input_prompt}\n`;
   user_prompt += `</INPUT_PROMPT>\n`;
+  if (recommendation) {
+    user_prompt += `Considering this feedback:\n`;
+    if (recommendation.good_aspects) {
+      user_prompt += `**Good aspects**:\n`;
+      user_prompt += `${recommendation.good_aspects.join('\n')}`;
+      user_prompt += `\n\n`;
+    }
+    if (recommendation.bad_aspects) {
+      user_prompt += `**Bad aspects**:\n`;
+      user_prompt += `${recommendation.bad_aspects.join('\n')}`;
+      user_prompt += `\n\n`;
+    }
+  }
   return user_prompt;
 }
 
-async function _ask_openai(system_prompt: string, user_prompt: string) {
-  log.trace(`Asking OpenAI...`);
+async function _ask_openai(
+  system_prompt: string,
+  user_prompt: string,
+  temperature = 1
+) {
   const openai_response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     // max_tokens: 4096,
@@ -177,9 +212,9 @@ async function _ask_openai(system_prompt: string, user_prompt: string) {
         content: user_prompt,
       },
     ],
+    temperature,
   });
   const text_resopnse = _resolve_text(openai_response);
-  log.debug(text_resopnse);
   return text_resopnse;
 }
 
@@ -191,7 +226,6 @@ function _resolve_text(
     console.error(openai_response);
     throw new Error(`OpenAI Response is empty`);
   }
-  // log.trace(text.message.content);
   return text.message.content;
 }
 
