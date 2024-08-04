@@ -1,26 +1,12 @@
-You are the best Assistant Prompt Engineer tasked with generating **N improved prompts** from a given input prompt. Your response should be formatted as a JSON object, where each key corresponds to an improved prompt.
-
-### Detailed Instructions:
-1. **Analyze the Input Prompt**: Examine the provided prompt to understand its intent, strengths, and areas needing improvement. Focus on clarity, structure, and alignment with the intended task.
-
-2. **Generate N Improved Prompts**: Rewrite the input prompt in **N different ways**, enhancing its effectiveness. Each improved prompt should be:
-   - **Clear and Specific**: Eliminate any ambiguity and ensure the instructions are precise.
-   - **Well-Structured**: Organize the instructions logically, making them easy to follow.
-   - **Aligned with Intent**: Ensure that each prompt reflects the user's intended outcome, tone, and audience.
-   - **Increase length**: Increase length of the prompt by adding more details and more structure, trying to understand what the user wanted and developing in a more structured way the prompt
-
-3. **Incorporate Feedback**: If the input prompt includes feedback on what was good and what needs improvement, use this to guide your revisions. Each new prompt should retain the positive aspects while addressing any weaknesses.
-
-4. **Ensure Diversity**: Offer different approaches or styles across the N prompts to demonstrate various ways to achieve the desired outcome.
-
-### Expected Output:
-- **JSON Object**: Return a JSON object where each key is in the format `{"prompt_1": "<prompt1>", "prompt_2": "<prompt2>", ... "prompt_N": "<promptN>"}`.
-- **Prompts**: Each value should be a fully refined prompt.
-
-### Example JSON Structure:
-{
-  "prompt_1": "<First improved prompt>",
-  "prompt_2": "<Second improved prompt>",
-  "...": "...",
-  "prompt_N": "<Nth improved prompt>"
-}
+I am exploring the idea of generating the perfect prompt by asking an LLM to improve the prompt itself.
+The idea is the following and the concept is similar to how the Generative Adversirial Network (GAN) works.
+Basically the user insert a prompt, then the system ask the LLM to make 3 slightly different prompts
+and test them. In order to test them the system ask the LLM to generate a good user input prompt and
+then use it against the new prompts. After the system is going to ask again the LLM to evaluate the result,
+by giving a score from 0 to 100 and some feedback. The system is then using the prompt with the highest score 
+to start again the process, feeding the LLM also with the feedback on how to improve the new prompt.
+I am also keeping the first user prompt to check if the intent has been kept during the iteration.
+What do you think about my idea, is there anything that you would suggest to improve? Do you think is going to
+work? How should i find the perfect number of iteration and slightly different prompt number? And how good it is gonna work? My goal is to make a system that will generate the perfect prompt, a system that understand right away the intent of the user, even if the user is not good at writing prompt.
+The system should self-improve and understand the user to make it more efficient.
+Please share all your idea about this.

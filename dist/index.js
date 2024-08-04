@@ -39,58 +39,84 @@ const prompts = __importStar(require("./prompts/index"));
 const openai = new openai_1.default();
 async function main() {
     const input_prompt = await prompts.read('../input');
-    const improved_prompt_result = await _itarate_autoimprove_prompt(input_prompt, 3, 2);
-    console.log(improved_prompt_result);
+    const improved_prompt_result = await _itarate_autoimprove_prompt({
+        first_intent: input_prompt,
+        input_prompt,
+        iteration: 4,
+        alternative_quantity: 3,
+    });
+    console.log(`Score: ${improved_prompt_result.score}\n`);
+    console.log(`Recommendation:\n${improved_prompt_result.recommendations}\n`);
+    console.log(`Prompt:\n${improved_prompt_result.prompt}`);
 }
 exports.main = main;
 main().then(() => console.log('DONE'));
-async function _itarate_autoimprove_prompt(input_prompt, iteration, alternative_quantity) {
+async function _itarate_autoimprove_prompt({ first_intent, input_prompt, iteration, alternative_quantity, }) {
     let current_prompt = input_prompt;
     let response;
     let max_score = 0;
     let recommendations;
     for (let i = 0; i < iteration; i++) {
-        index_1.log.debug(`************************************************************`);
-        index_1.log.debug(`Iteration ${i} started...`);
-        response = await _autoimprove_prompt(current_prompt, alternative_quantity, recommendations);
+        index_1.log.info(`************************************************************`);
+        index_1.log.info(`Iteration ${i} started...`);
+        response = await _autoimprove_prompt({
+            first_intent,
+            input_prompt: current_prompt,
+            alternative_quantity,
+            recommendations,
+        });
         if (response.score > max_score) {
+            index_1.log.info(`Response score [${response.score}] is grater than` +
+                ` max_score [${max_score}]. Replacing best response`);
             max_score = response.score;
             current_prompt = response.prompt;
             recommendations = {
                 good_aspects: response.good_aspects,
-                bad_aspects: response.bad_aspects
+                bad_aspects: response.bad_aspects,
             };
         }
     }
-    return response;
+    return {
+        score: max_score,
+        prompt: current_prompt,
+        recommendations,
+    };
 }
-async function _autoimprove_prompt(input_prompt, alternative_quantity, recommendations) {
-    index_1.log.trace(`Autoimproving prompt...`);
+async function _autoimprove_prompt({ first_intent, input_prompt, alternative_quantity, recommendations, }) {
     const improved_prompts = await _improve_prompt(input_prompt, alternative_quantity, recommendations);
     const scores = [];
     const evaluated_responses = [];
-    for (const improved_prompt of improved_prompts) {
+    for (let i = 0; i < improved_prompts.length; i++) {
+        const improved_prompt = improved_prompts[i];
         index_1.log.trace('-------------------------------------------------------------');
-        index_1.log.trace(improved_prompt);
+        index_1.log.trace(`Improved prompt [${i}]:\n${improved_prompt}`);
         const result = await _test_prompt(improved_prompt);
-        index_1.log.debug(`Generated result:\n${result}`);
-        const evaluated_response = await _evaluate_result(result, improved_prompt);
-        index_1.log.info(`Evaluated result score: ${evaluated_response.score}`);
+        index_1.log.trace('"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""');
+        index_1.log.trace(`Generated result [${i}]:\n${result}`);
+        const evaluated_response = await _evaluate_result({
+            first_intent,
+            result,
+            prompt: improved_prompt,
+        });
+        index_1.log.info(`Evaluated result score [${i}]: ${evaluated_response.score}`);
         scores.push(evaluated_response.score);
         evaluated_responses.push(evaluated_response);
     }
     const best_score_index = _resolve_best_score_index(scores);
+    index_1.log.debug(`Best score index: ${best_score_index}`);
     const improved_prompt_result = {
         prompt: improved_prompts[best_score_index],
         ...evaluated_responses[best_score_index],
     };
+    index_1.log.trace(`Best evaluated response`, evaluated_responses[best_score_index]);
     return improved_prompt_result;
 }
 async function _test_prompt(prompt) {
-    index_1.log.trace(`Testing prompt...`);
     const user_prompt = await _generate_user_prompt_example(prompt);
-    index_1.log.debug(`Generated user input example:\n${user_prompt}`);
-    const response = await _ask_openai(prompt, user_prompt);
+    const response = await _ask_openai({
+        system_prompt: prompt,
+        user_prompt
+    });
     return response;
 }
 async function _generate_user_prompt_example(prompt) {
@@ -98,16 +124,24 @@ async function _generate_user_prompt_example(prompt) {
     const user_input_user_prompt = await prompts.read('user-input-user', {
         prompt,
     });
-    const response = await _ask_openai(user_input_system_prompt, user_input_user_prompt);
+    const response = await _ask_openai({
+        system_prompt: user_input_system_prompt,
+        user_prompt: user_input_user_prompt
+    });
     return response;
 }
-async function _evaluate_result(result, prompt) {
+async function _evaluate_result({ first_intent, result, prompt, }) {
     const evaluate_system_prompt = await prompts.read('evaluate-system');
     const evaluate_user_prompt = await prompts.read('evaluate-user', {
+        first_intent,
         result,
         prompt,
     });
-    const response = await _ask_openai(evaluate_system_prompt, evaluate_user_prompt);
+    const response = await _ask_openai({
+        system_prompt: evaluate_system_prompt,
+        user_prompt: evaluate_user_prompt,
+        response_format: 'json_object'
+    });
     const parsed_response = _autocorrect_parse_JSON(response);
     _validate_evaluated_response(parsed_response);
     return parsed_response;
@@ -129,9 +163,17 @@ function _validate_evaluated_response(response) {
     });
 }
 async function _improve_prompt(input_prompt, output_quantity, recommendations) {
+    index_1.log.trace(`Generating alternative prompts...`);
     const improve_prompt = await prompts.read('improve');
     const user_prompt = await _resolve_improved_prompt_user_prompt(input_prompt, output_quantity, recommendations);
-    const response = await _ask_openai(improve_prompt, user_prompt, 1.2);
+    index_1.log.trace('...............................................................');
+    index_1.log.trace(`Improved prompts user prompt`, user_prompt);
+    const response = await _ask_openai({
+        system_prompt: improve_prompt,
+        user_prompt,
+        response_format: 'json_object',
+        temperature: 1.1
+    });
     const parsed_response = _autocorrect_parse_JSON(response);
     const improved_prompts = [];
     for (const [_key, value] of Object.entries(parsed_response)) {
@@ -149,9 +191,9 @@ async function _resolve_improved_prompt_user_prompt(input_prompt, output_quantit
     user_prompt += ` following prompt:\n\n`;
     user_prompt += `<INPUT_PROMPT>\n`;
     user_prompt += `${input_prompt}\n`;
-    user_prompt += `</INPUT_PROMPT>\n`;
+    user_prompt += `</INPUT_PROMPT>\n\n`;
     if (recommendations) {
-        user_prompt += `Considering this feedback:\n`;
+        user_prompt += `When generating the new prompts consider these feedbacks:\n`;
         if (recommendations.good_aspects) {
             user_prompt += `**Good aspects**:\n`;
             user_prompt += `${recommendations.good_aspects.join('\n')}`;
@@ -160,16 +202,16 @@ async function _resolve_improved_prompt_user_prompt(input_prompt, output_quantit
         if (recommendations.bad_aspects) {
             user_prompt += `**Bad aspects**:\n`;
             user_prompt += `${recommendations.bad_aspects.join('\n')}`;
-            user_prompt += `\n\n`;
         }
     }
     return user_prompt;
 }
-async function _ask_openai(system_prompt, user_prompt, temperature = 1) {
+async function _ask_openai({ system_prompt, user_prompt, temperature = 1, response_format = 'text', }) {
     const openai_response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         // max_tokens: 4096,
         max_tokens: 16384,
+        response_format: { type: response_format },
         messages: [
             {
                 role: 'system',
@@ -214,20 +256,32 @@ function _autocorrect_parse_JSON(jsonString) {
         return JSON.parse(jsonString);
     }
     catch (error) {
+        index_1.log.error(jsonString);
         console.error('Initial JSON parsing failed, attempting to autocorrect...');
         // Step 3: Fix common issues like missing commas, trailing commas, and unquoted keys
+        // Replace semicolons with commas
+        jsonString = jsonString.replace(/;/g, ',');
+        // Insert commas between objects if missing
+        jsonString = jsonString.replace(/}\s*"/g, '}, "');
+        // Insert commas between array items if missing
+        jsonString = jsonString.replace(/]\s*"/g, '], "');
+        // Insert missing commas between attributes (e.g., } followed by a letter or quote)
+        jsonString = jsonString.replace(/}(\s*")/g, '},$1');
+        jsonString = jsonString.replace(/}(\s*\w)/g, '},$1');
+        jsonString = jsonString.replace(/](\s*")/g, '],$1');
+        jsonString = jsonString.replace(/](\s*\w)/g, '],$1');
         // Add quotes to keys (this is a basic approach and may need refinement for edge cases)
         jsonString = jsonString.replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');
-        // Add commas between adjacent braces or brackets (this assumes that missing commas are the problem)
-        jsonString = jsonString.replace(/}\s*{/g, '},{');
-        jsonString = jsonString.replace(/]\s*\[/g, '],[');
         // Remove trailing commas
         jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
+        // Fix unclosed strings by adding a closing quote if needed
+        jsonString = jsonString.replace(/"([^"]*$)/g, '"$1"');
         // Try parsing again
         try {
             return JSON.parse(jsonString);
         }
         catch (finalError) {
+            index_1.log.error(jsonString);
             console.error('Failed to parse JSON after autocorrection attempts.');
             throw finalError;
         }
