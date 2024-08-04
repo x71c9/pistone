@@ -11,12 +11,12 @@ import * as prompts from './prompts/index';
 
 const openai = new OpenAI();
 
-type Recommendation = {
+type Recommendations = {
   good_aspects: string[];
   bad_aspects: string[];
 };
 
-type EvaluatedResponse = {
+type EvaluatedResponse = Recommendations & {
   score: number;
 };
 
@@ -25,11 +25,11 @@ type ImprovedPromptResult = EvaluatedResponse & {
 };
 
 export async function main() {
-  log.trace('Autoimproving prompt...');
   const input_prompt = await prompts.read('../input');
   const improved_prompt_result = await _itarate_autoimprove_prompt(
     input_prompt,
-    3
+    3,
+    2
   );
   console.log(improved_prompt_result);
 }
@@ -38,18 +38,28 @@ main().then(() => console.log('DONE'));
 
 async function _itarate_autoimprove_prompt(
   input_prompt: string,
-  iteration: number
+  iteration: number,
+  alternative_quantity: number
 ) {
   let current_prompt = input_prompt;
   let response;
   let max_score = 0;
+  let recommendations;
   for (let i = 0; i < iteration; i++) {
     log.debug(`************************************************************`);
     log.debug(`Iteration ${i} started...`);
-    response = await _autoimprove_prompt(current_prompt);
+    response = await _autoimprove_prompt(
+      current_prompt,
+      alternative_quantity,
+      recommendations
+    );
     if (response.score > max_score) {
       max_score = response.score;
       current_prompt = response.prompt;
+      recommendations = {
+        good_aspects: response.good_aspects,
+        bad_aspects: response.bad_aspects,
+      };
     }
   }
   return response;
@@ -57,13 +67,14 @@ async function _itarate_autoimprove_prompt(
 
 async function _autoimprove_prompt(
   input_prompt: string,
-  recommendation?: Recommendation
+  alternative_quantity: number,
+  recommendations?: Recommendations
 ): Promise<ImprovedPromptResult> {
   log.trace(`Autoimproving prompt...`);
   const improved_prompts = await _improve_prompt(
     input_prompt,
-    3,
-    recommendation
+    alternative_quantity,
+    recommendations
   );
   const scores: number[] = [];
   const evaluated_responses: EvaluatedResponse[] = [];
@@ -88,7 +99,7 @@ async function _autoimprove_prompt(
 async function _test_prompt(prompt: string) {
   log.trace(`Testing prompt...`);
   const user_prompt = await _generate_user_prompt_example(prompt);
-  log.debug(`Generated user input example ${user_prompt}`);
+  log.debug(`Generated user input example:\n${user_prompt}`);
   const response = await _ask_openai(prompt, user_prompt);
   return response;
 }
@@ -118,7 +129,7 @@ async function _evaluate_result(
     evaluate_system_prompt,
     evaluate_user_prompt
   );
-  const parsed_response = JSON.parse(response);
+  const parsed_response = _autocorrect_parse_JSON(response);
   _validate_evaluated_response(parsed_response);
   return parsed_response;
 }
@@ -145,7 +156,7 @@ function _validate_evaluated_response(
 async function _improve_prompt(
   input_prompt: string,
   output_quantity: number,
-  recommendations?: Recommendation
+  recommendations?: Recommendations
 ): Promise<string[]> {
   const improve_prompt = await prompts.read('improve');
   const user_prompt = await _resolve_improved_prompt_user_prompt(
@@ -153,8 +164,8 @@ async function _improve_prompt(
     output_quantity,
     recommendations
   );
-  const response = await _ask_openai(improve_prompt, user_prompt);
-  const parsed_response = JSON.parse(response);
+  const response = await _ask_openai(improve_prompt, user_prompt, 1.2);
+  const parsed_response = _autocorrect_parse_JSON(response);
   const improved_prompts: string[] = [];
   for (const [_key, value] of Object.entries(parsed_response)) {
     if (typeof value !== 'string') {
@@ -169,7 +180,7 @@ async function _improve_prompt(
 async function _resolve_improved_prompt_user_prompt(
   input_prompt: string,
   output_quantity: number,
-  recommendation?: Recommendation
+  recommendations?: Recommendations
 ): Promise<string> {
   let user_prompt = '';
   user_prompt += `Generate ${output_quantity} improved prompts for the`;
@@ -177,16 +188,16 @@ async function _resolve_improved_prompt_user_prompt(
   user_prompt += `<INPUT_PROMPT>\n`;
   user_prompt += `${input_prompt}\n`;
   user_prompt += `</INPUT_PROMPT>\n`;
-  if (recommendation) {
+  if (recommendations) {
     user_prompt += `Considering this feedback:\n`;
-    if (recommendation.good_aspects) {
+    if (recommendations.good_aspects) {
       user_prompt += `**Good aspects**:\n`;
-      user_prompt += `${recommendation.good_aspects.join('\n')}`;
+      user_prompt += `${recommendations.good_aspects.join('\n')}`;
       user_prompt += `\n\n`;
     }
-    if (recommendation.bad_aspects) {
+    if (recommendations.bad_aspects) {
       user_prompt += `**Bad aspects**:\n`;
-      user_prompt += `${recommendation.bad_aspects.join('\n')}`;
+      user_prompt += `${recommendations.bad_aspects.join('\n')}`;
       user_prompt += `\n\n`;
     }
   }
@@ -231,4 +242,40 @@ function _resolve_text(
 
 function _resolve_best_score_index(scores: number[]) {
   return scores.indexOf(Math.max(...scores));
+}
+
+function _autocorrect_parse_JSON(jsonString: string): any {
+  // Step 1: Remove any unwanted formatting like ```json, ```, {{, }}
+  jsonString = jsonString.trim(); // Remove leading/trailing spaces
+  // Remove ```json and ```
+  if (jsonString.startsWith('```json')) {
+    jsonString = jsonString.substring(7);
+  }
+  if (jsonString.endsWith('```')) {
+    jsonString = jsonString.substring(0, jsonString.length - 3);
+  }
+  // Remove {{ and }}
+  jsonString = jsonString.replace(/^\s*\{\{/, '{');
+  jsonString = jsonString.replace(/\}\}\s*$/, '}');
+  // Step 2: Attempt to parse the JSON
+  try {
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error('Initial JSON parsing failed, attempting to autocorrect...');
+    // Step 3: Fix common issues like missing commas, trailing commas, and unquoted keys
+    // Add quotes to keys (this is a basic approach and may need refinement for edge cases)
+    jsonString = jsonString.replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');
+    // Add commas between adjacent braces or brackets (this assumes that missing commas are the problem)
+    jsonString = jsonString.replace(/}\s*{/g, '},{');
+    jsonString = jsonString.replace(/]\s*\[/g, '],[');
+    // Remove trailing commas
+    jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
+    // Try parsing again
+    try {
+      return JSON.parse(jsonString);
+    } catch (finalError) {
+      console.error('Failed to parse JSON after autocorrection attempts.');
+      throw finalError;
+    }
+  }
 }
