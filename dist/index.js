@@ -37,21 +37,30 @@ const _3xp_1 = __importDefault(require("3xp"));
 const index_1 = require("./log/index");
 const prompts = __importStar(require("./prompts/index"));
 const openai = new openai_1.default();
+const batch_requests_delay = 500;
 async function main() {
-    const input_prompt = await prompts.read('../input');
+    var _a, _b;
+    const input_prompt = await prompts.read('../input-prompt');
+    const input_goal = await prompts.read('../input-goal');
     const improved_prompt_result = await _itarate_autoimprove_prompt({
         first_intent: input_prompt,
+        input_goal,
         input_prompt,
         iteration: 4,
         alternative_quantity: 3,
     });
-    console.log(`Score: ${improved_prompt_result.score}\n`);
-    console.log(`Recommendation:\n${improved_prompt_result.recommendations}\n`);
-    console.log(`Prompt:\n${improved_prompt_result.prompt}`);
+    index_1.log.info(`\nScore:`);
+    index_1.log.debug(`${improved_prompt_result.score}\n`);
+    index_1.log.info(`Bad aspect:`);
+    index_1.log.debug(`${(_a = improved_prompt_result.recommendations) === null || _a === void 0 ? void 0 : _a.bad_aspects.join('\n')}\n`);
+    index_1.log.info(`Good aspect:`);
+    index_1.log.debug(`${(_b = improved_prompt_result.recommendations) === null || _b === void 0 ? void 0 : _b.good_aspects.join('\n')}\n`);
+    index_1.log.info(`Prompt:`);
+    index_1.log.debug(`${improved_prompt_result.prompt}\n`);
 }
 exports.main = main;
 main().then(() => console.log('DONE'));
-async function _itarate_autoimprove_prompt({ first_intent, input_prompt, iteration, alternative_quantity, }) {
+async function _itarate_autoimprove_prompt({ first_intent, input_goal, input_prompt, iteration, alternative_quantity, }) {
     let current_prompt = input_prompt;
     let response;
     let max_score = 0;
@@ -61,6 +70,7 @@ async function _itarate_autoimprove_prompt({ first_intent, input_prompt, iterati
         index_1.log.info(`Iteration ${i} started...`);
         response = await _autoimprove_prompt({
             first_intent,
+            input_goal,
             input_prompt: current_prompt,
             alternative_quantity,
             recommendations,
@@ -82,25 +92,41 @@ async function _itarate_autoimprove_prompt({ first_intent, input_prompt, iterati
         recommendations,
     };
 }
-async function _autoimprove_prompt({ first_intent, input_prompt, alternative_quantity, recommendations, }) {
-    const improved_prompts = await _improve_prompt(input_prompt, alternative_quantity, recommendations);
+async function _autoimprove_prompt({ first_intent, input_goal, input_prompt, alternative_quantity, recommendations, }) {
+    const improved_prompts = await _improve_prompt({
+        input_prompt,
+        input_goal,
+        output_quantity: alternative_quantity,
+        recommendations,
+    });
     const scores = [];
-    const evaluated_responses = [];
+    const evaluated_response_promises = [];
     for (let i = 0; i < improved_prompts.length; i++) {
-        const improved_prompt = improved_prompts[i];
-        index_1.log.trace('-------------------------------------------------------------');
-        index_1.log.trace(`Improved prompt [${i}]:\n${improved_prompt}`);
-        const result = await _test_prompt(improved_prompt);
-        index_1.log.trace('"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""');
-        index_1.log.trace(`Generated result [${i}]:\n${result}`);
-        const evaluated_response = await _evaluate_result({
-            first_intent,
-            result,
-            prompt: improved_prompt,
+        const evaluated_response_promise = new Promise((res) => {
+            setTimeout(async function () {
+                const improved_prompt = improved_prompts[i];
+                index_1.log.trace('---------------------------------------------------------');
+                index_1.log.trace(`Improved prompt [${i}]:\n${improved_prompt}`);
+                const result = await _test_prompt(improved_prompt);
+                index_1.log.trace('"""""""""""""""""""""""""""""""""""""""""""""""""""""""""');
+                index_1.log.trace(`Generated result [${i}]:\n${result}`);
+                const evaluated_response = await _evaluate_result({
+                    first_intent,
+                    input_goal,
+                    result,
+                    prompt: improved_prompt,
+                });
+                res(evaluated_response);
+            }, batch_requests_delay * i);
         });
+        evaluated_response_promises.push(evaluated_response_promise);
+    }
+    const evaluated_responses = await Promise.all(evaluated_response_promises);
+    for (let i = 0; i < evaluated_responses.length; i++) {
+        const evaluated_response = evaluated_responses[i];
         index_1.log.info(`Evaluated result score [${i}]: ${evaluated_response.score}`);
         scores.push(evaluated_response.score);
-        evaluated_responses.push(evaluated_response);
+        // evaluated_responses.push(evaluated_response);
     }
     const best_score_index = _resolve_best_score_index(scores);
     index_1.log.debug(`Best score index: ${best_score_index}`);
@@ -115,7 +141,7 @@ async function _test_prompt(prompt) {
     const user_prompt = await _generate_user_prompt_example(prompt);
     const response = await _ask_openai({
         system_prompt: prompt,
-        user_prompt
+        user_prompt,
     });
     return response;
 }
@@ -126,21 +152,22 @@ async function _generate_user_prompt_example(prompt) {
     });
     const response = await _ask_openai({
         system_prompt: user_input_system_prompt,
-        user_prompt: user_input_user_prompt
+        user_prompt: user_input_user_prompt,
     });
     return response;
 }
-async function _evaluate_result({ first_intent, result, prompt, }) {
+async function _evaluate_result({ first_intent, input_goal, result, prompt, }) {
     const evaluate_system_prompt = await prompts.read('evaluate-system');
     const evaluate_user_prompt = await prompts.read('evaluate-user', {
         first_intent,
+        input_goal,
         result,
         prompt,
     });
     const response = await _ask_openai({
         system_prompt: evaluate_system_prompt,
         user_prompt: evaluate_user_prompt,
-        response_format: 'json_object'
+        response_format: 'json_object',
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     _validate_evaluated_response(parsed_response);
@@ -162,17 +189,22 @@ function _validate_evaluated_response(response) {
         },
     });
 }
-async function _improve_prompt(input_prompt, output_quantity, recommendations) {
+async function _improve_prompt({ input_prompt, input_goal, output_quantity, recommendations, }) {
     index_1.log.trace(`Generating alternative prompts...`);
-    const improve_prompt = await prompts.read('improve');
-    const user_prompt = await _resolve_improved_prompt_user_prompt(input_prompt, output_quantity, recommendations);
+    const improve_prompt = await prompts.read('improve-system');
+    const user_prompt = await _resolve_improved_prompt_user_prompt({
+        input_prompt,
+        input_goal,
+        output_quantity,
+        recommendations,
+    });
     index_1.log.trace('...............................................................');
-    index_1.log.trace(`Improved prompts user prompt`, user_prompt);
+    index_1.log.trace(`Improved prompts user prompt:\n\n`, user_prompt);
     const response = await _ask_openai({
         system_prompt: improve_prompt,
         user_prompt,
         response_format: 'json_object',
-        temperature: 1.1
+        temperature: 1.1,
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     const improved_prompts = [];
@@ -185,23 +217,33 @@ async function _improve_prompt(input_prompt, output_quantity, recommendations) {
     }
     return improved_prompts;
 }
-async function _resolve_improved_prompt_user_prompt(input_prompt, output_quantity, recommendations) {
+async function _resolve_improved_prompt_user_prompt({ input_prompt, input_goal, output_quantity, recommendations, }) {
     let user_prompt = '';
     user_prompt += `Generate ${output_quantity} improved prompts for the`;
     user_prompt += ` following prompt:\n\n`;
     user_prompt += `<INPUT_PROMPT>\n`;
-    user_prompt += `${input_prompt}\n`;
-    user_prompt += `</INPUT_PROMPT>\n\n`;
+    user_prompt += `${input_prompt}`;
+    user_prompt += `</INPUT_PROMPT>`;
+    user_prompt += `\n\n`;
+    if (input_goal) {
+        user_prompt += `The provided final goal of the improved prompts is:\n\n`;
+        user_prompt += `<INPUT_GOAL>\n`;
+        user_prompt += `${input_goal}`;
+        user_prompt += `</INPUT_GOAL>`;
+        user_prompt += `\n\n`;
+    }
     if (recommendations) {
-        user_prompt += `When generating the new prompts consider these feedbacks:\n`;
+        user_prompt += `When generating the new prompts consider these feedbacks:\n\n`;
         if (recommendations.good_aspects) {
-            user_prompt += `**Good aspects**:\n`;
+            user_prompt += `<GOOD_ASPECT>\n`;
             user_prompt += `${recommendations.good_aspects.join('\n')}`;
+            user_prompt += `</GOOD_ASPECT>`;
             user_prompt += `\n\n`;
         }
         if (recommendations.bad_aspects) {
-            user_prompt += `**Bad aspects**:\n`;
+            user_prompt += `<BAD_ASPECTS>\n`;
             user_prompt += `${recommendations.bad_aspects.join('\n')}`;
+            user_prompt += `</BAD_ASPECTS>`;
         }
     }
     return user_prompt;

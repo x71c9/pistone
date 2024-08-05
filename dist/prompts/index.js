@@ -11,14 +11,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.read = void 0;
 const fs_1 = __importDefault(require("fs"));
 const app_root_path_1 = __importDefault(require("app-root-path"));
+const index_1 = require("../log/index");
 async function read(name, parameters) {
-    const data = fs_1.default.readFileSync(`${app_root_path_1.default}/src/prompts/${name}.md`, {
-        encoding: 'utf-8',
-    });
-    if (parameters) {
-        return _replace_placeholder(data, parameters);
+    try {
+        const data = fs_1.default.readFileSync(`${app_root_path_1.default}/src/prompts/${name}.md`, {
+            encoding: 'utf-8',
+        });
+        if (parameters) {
+            return _replace_placeholder(data, parameters);
+        }
+        return data;
     }
-    return data;
+    catch (e) {
+        index_1.log.error(e);
+        return '';
+    }
 }
 exports.read = read;
 function _replace_placeholder(input_string, replacements) {

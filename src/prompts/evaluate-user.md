@@ -5,6 +5,9 @@ Please evaluate the effectiveness of the following prompt based on how well it g
 - **First Intent:**
   {{first_intent}}
 
+- **Goal**
+  {{input_goal}}
+
 - **Prompt:**
   {{prompt}}
 
