@@ -10,3 +10,5 @@ yarn-error.log
 reports/
 coverage/
 out/
+input-prompt.md
+input-goal.md

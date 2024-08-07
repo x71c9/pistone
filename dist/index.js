@@ -40,13 +40,17 @@ const openai = new openai_1.default();
 const batch_requests_delay = 500;
 async function main() {
     var _a, _b;
-    const input_prompt = await prompts.read('../input-prompt');
-    const input_goal = await prompts.read('../input-goal');
+    const input_prompt = await prompts.read('../../input-prompt');
+    if (!input_prompt) {
+        throw new Error(`No input prompt found. Write the prompt to improve as markdown file in`
+            + ` the root of the project [input-prompt.md]`);
+    }
+    const input_goal = await prompts.read('../../input-goal');
     const improved_prompt_result = await _itarate_autoimprove_prompt({
         first_intent: input_prompt,
         input_goal,
         input_prompt,
-        iteration: 4,
+        iteration: 32,
         alternative_quantity: 3,
     });
     index_1.log.info(`\nScore:`);
@@ -199,12 +203,13 @@ async function _improve_prompt({ input_prompt, input_goal, output_quantity, reco
         recommendations,
     });
     index_1.log.trace('...............................................................');
-    index_1.log.trace(`Improved prompts user prompt:\n\n`, user_prompt);
+    index_1.log.trace(`Improved prompts user prompt:\n\n`);
+    index_1.log.trace(user_prompt);
     const response = await _ask_openai({
         system_prompt: improve_prompt,
         user_prompt,
         response_format: 'json_object',
-        temperature: 1.1,
+        // temperature: 1.1,
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     const improved_prompts = [];
@@ -222,27 +227,27 @@ async function _resolve_improved_prompt_user_prompt({ input_prompt, input_goal, 
     user_prompt += `Generate ${output_quantity} improved prompts for the`;
     user_prompt += ` following prompt:\n\n`;
     user_prompt += `<INPUT_PROMPT>\n`;
-    user_prompt += `${input_prompt}`;
+    user_prompt += `${input_prompt}\n`;
     user_prompt += `</INPUT_PROMPT>`;
     user_prompt += `\n\n`;
     if (input_goal) {
         user_prompt += `The provided final goal of the improved prompts is:\n\n`;
-        user_prompt += `<INPUT_GOAL>\n`;
-        user_prompt += `${input_goal}`;
-        user_prompt += `</INPUT_GOAL>`;
+        user_prompt += `<GOAL>\n`;
+        user_prompt += `${input_goal}\n`;
+        user_prompt += `</GOAL>`;
         user_prompt += `\n\n`;
     }
     if (recommendations) {
         user_prompt += `When generating the new prompts consider these feedbacks:\n\n`;
         if (recommendations.good_aspects) {
             user_prompt += `<GOOD_ASPECT>\n`;
-            user_prompt += `${recommendations.good_aspects.join('\n')}`;
+            user_prompt += `${recommendations.good_aspects.join('\n')}\n`;
             user_prompt += `</GOOD_ASPECT>`;
             user_prompt += `\n\n`;
         }
         if (recommendations.bad_aspects) {
             user_prompt += `<BAD_ASPECTS>\n`;
-            user_prompt += `${recommendations.bad_aspects.join('\n')}`;
+            user_prompt += `${recommendations.bad_aspects.join('\n')}\n`;
             user_prompt += `</BAD_ASPECTS>`;
         }
     }
