@@ -13,7 +13,7 @@ const openai = new OpenAI();
 
 const batch_requests_delay = 500;
 
-const iteration = 32;
+const iteration = 4;
 const alternative_quantity = 3;
 
 type Recommendations = {
@@ -168,9 +168,13 @@ async function _autoimprove_prompt({
 
 async function _test_prompt(prompt: string) {
   const user_prompt = await _generate_user_prompt_example(prompt);
+  log.trace('""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""');
+  log.trace('Testing generated user prompt:');
+  log.trace(user_prompt);
   const response = await _ask_openai({
     system_prompt: prompt,
     user_prompt,
+    seed: _random_seed(),
   });
   return response;
 }
@@ -183,6 +187,7 @@ async function _generate_user_prompt_example(prompt: string): Promise<string> {
   const response = await _ask_openai({
     system_prompt: user_input_system_prompt,
     user_prompt: user_input_user_prompt,
+    seed: _random_seed(),
   });
   return response;
 }
@@ -209,6 +214,7 @@ async function _evaluate_result({
     system_prompt: evaluate_system_prompt,
     user_prompt: evaluate_user_prompt,
     response_format: 'json_object',
+    seed: _random_seed(),
   });
   const parsed_response = _autocorrect_parse_JSON(response);
   _validate_evaluated_response(parsed_response);
@@ -260,7 +266,8 @@ async function _improve_prompt({
     system_prompt: improve_prompt,
     user_prompt,
     response_format: 'json_object',
-    // temperature: 1.1,
+    temperature: 1.1,
+    seed: _random_seed(),
   });
   const parsed_response = _autocorrect_parse_JSON(response);
   const improved_prompts: string[] = [];
@@ -323,11 +330,13 @@ async function _ask_openai({
   user_prompt,
   temperature = 1,
   response_format = 'text',
+  seed,
 }: {
   system_prompt: string;
   user_prompt: string;
   temperature?: number;
   response_format?: OpenAIResopnseFormat;
+  seed?: number;
 }) {
   const openai_response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -345,6 +354,7 @@ async function _ask_openai({
       },
     ],
     temperature,
+    seed,
   });
   const text_resopnse = _resolve_text(openai_response);
   return text_resopnse;
@@ -411,4 +421,8 @@ function _autocorrect_parse_JSON(jsonString: string): any {
       throw finalError;
     }
   }
+}
+
+function _random_seed() {
+  return Math.floor(Math.random() * 9999999);
 }

@@ -38,20 +38,22 @@ const index_1 = require("./log/index");
 const prompts = __importStar(require("./prompts/index"));
 const openai = new openai_1.default();
 const batch_requests_delay = 500;
+const iteration = 4;
+const alternative_quantity = 3;
 async function main() {
     var _a, _b;
     const input_prompt = await prompts.read('../../input-prompt');
     if (!input_prompt) {
-        throw new Error(`No input prompt found. Write the prompt to improve as markdown file in`
-            + ` the root of the project [input-prompt.md]`);
+        throw new Error(`No input prompt found. Write the prompt to improve as markdown file in` +
+            ` the root of the project [input-prompt.md]`);
     }
     const input_goal = await prompts.read('../../input-goal');
     const improved_prompt_result = await _itarate_autoimprove_prompt({
         first_intent: input_prompt,
         input_goal,
         input_prompt,
-        iteration: 32,
-        alternative_quantity: 3,
+        iteration,
+        alternative_quantity,
     });
     index_1.log.info(`\nScore:`);
     index_1.log.debug(`${improved_prompt_result.score}\n`);
@@ -143,6 +145,9 @@ async function _autoimprove_prompt({ first_intent, input_goal, input_prompt, alt
 }
 async function _test_prompt(prompt) {
     const user_prompt = await _generate_user_prompt_example(prompt);
+    index_1.log.trace('""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""');
+    index_1.log.trace('Testing generated user prompt:');
+    index_1.log.trace(user_prompt);
     const response = await _ask_openai({
         system_prompt: prompt,
         user_prompt,
@@ -209,7 +214,7 @@ async function _improve_prompt({ input_prompt, input_goal, output_quantity, reco
         system_prompt: improve_prompt,
         user_prompt,
         response_format: 'json_object',
-        // temperature: 1.1,
+        temperature: 1.1,
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     const improved_prompts = [];
