@@ -174,7 +174,7 @@ async function _test_prompt(prompt: string) {
   const response = await _ask_openai({
     system_prompt: prompt,
     user_prompt,
-    seed: _random_seed(),
+    // seed: _random_seed(),
   });
   return response;
 }
@@ -214,7 +214,7 @@ async function _evaluate_result({
     system_prompt: evaluate_system_prompt,
     user_prompt: evaluate_user_prompt,
     response_format: 'json_object',
-    seed: _random_seed(),
+    // seed: _random_seed(),
   });
   const parsed_response = _autocorrect_parse_JSON(response);
   _validate_evaluated_response(parsed_response);
@@ -266,7 +266,7 @@ async function _improve_prompt({
     system_prompt: improve_prompt,
     user_prompt,
     response_format: 'json_object',
-    temperature: 1.1,
+    // temperature: 1.1,
     seed: _random_seed(),
   });
   const parsed_response = _autocorrect_parse_JSON(response);

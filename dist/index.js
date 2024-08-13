@@ -151,6 +151,7 @@ async function _test_prompt(prompt) {
     const response = await _ask_openai({
         system_prompt: prompt,
         user_prompt,
+        seed: _random_seed(),
     });
     return response;
 }
@@ -162,6 +163,7 @@ async function _generate_user_prompt_example(prompt) {
     const response = await _ask_openai({
         system_prompt: user_input_system_prompt,
         user_prompt: user_input_user_prompt,
+        seed: _random_seed(),
     });
     return response;
 }
@@ -177,6 +179,7 @@ async function _evaluate_result({ first_intent, input_goal, result, prompt, }) {
         system_prompt: evaluate_system_prompt,
         user_prompt: evaluate_user_prompt,
         response_format: 'json_object',
+        seed: _random_seed(),
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     _validate_evaluated_response(parsed_response);
@@ -215,6 +218,7 @@ async function _improve_prompt({ input_prompt, input_goal, output_quantity, reco
         user_prompt,
         response_format: 'json_object',
         temperature: 1.1,
+        seed: _random_seed(),
     });
     const parsed_response = _autocorrect_parse_JSON(response);
     const improved_prompts = [];
@@ -258,7 +262,7 @@ async function _resolve_improved_prompt_user_prompt({ input_prompt, input_goal, 
     }
     return user_prompt;
 }
-async function _ask_openai({ system_prompt, user_prompt, temperature = 1, response_format = 'text', }) {
+async function _ask_openai({ system_prompt, user_prompt, temperature = 1, response_format = 'text', seed, }) {
     const openai_response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         // max_tokens: 4096,
@@ -275,6 +279,7 @@ async function _ask_openai({ system_prompt, user_prompt, temperature = 1, respon
             },
         ],
         temperature,
+        seed,
     });
     const text_resopnse = _resolve_text(openai_response);
     return text_resopnse;
@@ -338,5 +343,8 @@ function _autocorrect_parse_JSON(jsonString) {
             throw finalError;
         }
     }
+}
+function _random_seed() {
+    return Math.floor(Math.random() * 9999999);
 }
 //# sourceMappingURL=index.js.map
